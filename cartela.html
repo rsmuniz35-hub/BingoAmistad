@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Minhas Cartelas - Bingo Amistad</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="firebase-config.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #2c3e50; margin: 0; padding: 15px; color: #fff; display: flex; flex-direction: column; align-items: center; min-height: 100vh; box-sizing: border-box; }
+        .header { text-align: center; margin-bottom: 20px; position: sticky; top: 0; background: #2c3e50; width: 100%; padding: 10px 0; z-index: 100; border-bottom: 2px solid #34495e; }
+        .header h1 { margin: 0; color: #f1c40f; text-transform: uppercase; font-size: 24px; }
+        #resumo-topo { font-size: 14px; color: #27ae60; font-weight: bold; margin-top: 4px; }
+        #premio-topo { font-size: 15px; color: #f39c12; font-weight: bold; margin-top: 4px; display: block; }
+        .wrapper-cartela { margin-bottom: 30px; width: 100%; max-width: 400px; position: relative; }
+        .label-id { text-align: center; background: #34495e; padding: 5px; border-radius: 8px 8px 0 0; font-weight: bold; font-size: 14px; border: 2px solid white; border-bottom: none; }
+        .bingo-card { background-color: white; padding: 8px; border-radius: 0 0 12px 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.3); border: 2px solid white; }
+        .bingo-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+        .bingo-header { background-color: #1e6b47; color: white; text-align: center; font-size: 18px; font-weight: 900; padding: 6px 0; border-radius: 4px; }
+        .bingo-cell { background-color: #f4f7f6; color: #2c3e50; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; border-radius: 6px; border: 1px solid #bdc3c7; cursor: pointer; position: relative; -webkit-tap-highlight-color: transparent; }
+        .bingo-cell.marcada::after { content: ''; position: absolute; width: 75%; height: 75%; background-color: rgba(231, 76, 60, 0.75); border-radius: 50%; box-shadow: inset 0 0 5px rgba(0,0,0,0.5); z-index: 2; }
+        
+        .bingo-cell.sorteada-na-tv { 
+            border: 3px solid #f1c40f !important; 
+            background-color: #fef9e7 !important; 
+            color: #b7950b !important;
+            box-shadow: inset 0 0 8px rgba(241, 196, 15, 0.6);
+        }
+        
+        .livre { font-size: 10px; background-color: #f1c40f; color: #000; border-color: #f39c12; }
+        .footer-info { margin: 20px 0; text-align: center; font-size: 13px; color: #bdc3c7; }
+        #overlay-vitoria { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: linear-gradient(45deg, #f1c40f, #f39c12); z-index: 99999; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: white; padding: 20px; box-sizing: border-box; }
+        #overlay-vitoria h2 { font-size: 50px; margin: 0; text-shadow: 3px 3px 6px rgba(0,0,0,0.3); animation: bounce 0.5s infinite alternate; }
+        #overlay-vitoria p { font-size: 24px; font-weight: bold; margin: 15px 0; }
+        .btn-fechar-vitoria { background: white; color: #d35400; font-size: 18px; padding: 10px 20px; border-radius: 30px; border: none; font-weight: bold; cursor: pointer; margin-top: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        @keyframes bounce { from { transform: scale(1); } to { transform: scale(1.1); } }
+    </style>
+</head>
+<body>
+
+    <div id="overlay-vitoria">
+        <h2>🎉 BINGO! 🎉</h2>
+        <p>Você completou a cartela <span id="id-ganhador" style="text-decoration: underline;">XXXX</span>!</p>
+        <p id="premio-ganhado" style="color: #2c3e50; font-size: 20px; background: rgba(255,255,255,0.4); padding: 10px 20px; border-radius: 10px;"></p>
+        <button class="btn-fechar-vitoria" onclick="fecharVitoria()">Continuar Olhando</button>
+    </div>
+
+    <div class="header">
+        <h1>BINGO AMISTAD</h1>
+        <div id="premio-topo">Prêmio: Sincronizando...</div>
+        <div id="resumo-topo">Carregando suas cartelas...</div>
+    </div>
+
+    <div id="container-central"></div>
+    
+    <div class="footer-info">
+        <p>💡 As pedras sorteadas na TV ganham uma borda amarela automática!<br>Toque para marcar suas fichas vermelhas.</p>
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const idsNovos = urlParams.get('ids') || urlParams.get('id');
+        const numsNovos = urlParams.get('n');
+
+        let cartelasSalvas = JSON.parse(localStorage.getItem('cartelas_bingo_amistad')) || [];
+        let numerosSorteadosGlobal = [];
+        let jaGanhou = false;
+
+        // Marcador interno para saber se o comando de limpeza remota já foi executado
+        let ultimaLimpezaProcessada = localStorage.getItem('ultima_limpeza_timestamp') || "0";
+
+        if(idsNovos && numsNovos && numsNovos.trim() !== "") {
+            const listaIds = idsNovos.split(',');
+            const listaNumeros = numsNovos.split('|');
+            listaIds.forEach((id, index) => {
+                if (listaNumeros[index] && !cartelasSalvas.find(c => c.id === id)) {
+                    cartelasSalvas.push({ id: id, numeros: listaNumeros[index].trim() });
+                }
+            });
+            localStorage.setItem('cartelas_bingo_amistad', JSON.stringify(cartelasSalvas));
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        const container = document.getElementById('container-central');
+        
+        function atualizarTelaCartelas() {
+            document.getElementById('resumo-topo').innerText = `Você tem ${cartelasSalvas.length} cartela(s) ativas`;
+            if(cartelasSalvas.length === 0) {
+                container.innerHTML = "<p style='text-align:center; color:#bdc3c7; padding: 20px;'>Nenhuma cartela ativa encontrada.<br>Aguarde o envio de novas cartelas pelo WhatsApp.</p>";
+            } else {
+                container.innerHTML = "";
+                cartelasSalvas.forEach(cartela => {
+                    if (cartela.numeros && cartela.numeros.includes('-')) {
+                        renderizarUmaCartela(cartela.id, cartela.numeros.split('-'), container);
+                    }
+                });
+            }
+        }
+
+        atualizarTelaCartelas();
+
+        function renderizarUmaCartela(id, numeros, pai) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'wrapper-cartela';
+            wrapper.id = `wrapper-${id}`;
+            wrapper.innerHTML = `<div class="label-id">CARTELA Nº: ${id}</div>`;
+            
+            const card = document.createElement('div'); card.className = 'bingo-card';
+            const grid = document.createElement('div'); grid.className = 'bingo-grid';
+            ['B','I','N','G','O'].forEach(l => { grid.innerHTML += `<div class="bingo-header">${l}</div>`; });
+
+            const b = numeros.slice(0, 5); const i = numeros.slice(5, 10); const n = numeros.slice(10, 14); const g = numeros.slice(14, 19); const o = numeros.slice(19, 24);
+
+            for(let row = 0; row < 5; row++) {
+                grid.appendChild(criarNo(b[row], b[row]));
+                grid.appendChild(criarNo(i[row], i[row]));
+                if(row === 2) {
+                    const free = document.createElement('div');
+                    free.className = 'bingo-cell livre marcada';
+                    free.innerText = 'LIVRE';
+                    free.setAttribute('data-num', 'LIVRE');
+                    free.onclick = () => free.classList.toggle('marcada');
+                    grid.appendChild(free);
+                } else {
+                    let num = row > 2 ? n[row-1] : n[row];
+                    grid.appendChild(criarNo(num, num));
+                }
+                grid.appendChild(criarNo(g[row], g[row]));
+                grid.appendChild(criarNo(o[row], o[row]));
+            }
+            card.appendChild(grid); wrapper.appendChild(card); pai.appendChild(wrapper);
+        }
+
+        function criarNo(texto, valorNum) {
+            const cell = document.createElement('div');
+            cell.className = 'bingo-cell';
+            cell.innerText = texto || "";
+            cell.setAttribute('data-num', valorNum || "");
+            if (texto) { cell.onclick = () => cell.classList.toggle('marcada'); }
+            return cell;
+        }
+
+        // ESCUTA ATIVA DO BANCO DE DADOS
+        if (typeof db !== 'undefined') {
+            db.collection("config").doc("sorteio").onSnapshot((doc) => {
+                if (doc.exists) {
+                    const dados = doc.data();
+                    
+                    // RECEPTOR DO COMANDO DE LIMPEZA REMOTA DA TV
+                    if (dados.limparCelulares && dados.limparCelulares.toString() !== ultimaLimpezaProcessada) {
+                        ultimaLimpezaProcessada = dados.limparCelulares.toString();
+                        localStorage.setItem('ultima_limpeza_timestamp', ultimaLimpezaProcessada);
+                        
+                        localStorage.removeItem('cartelas_bingo_amistad');
+                        cartelasSalvas = [];
+                        jaGanhou = false;
+                        atualizarTelaCartelas();
+                    }
+
+                    numerosSorteadosGlobal = (dados.sorteados || []).map(Number);
+                    const premio = dados.premio || "Aguardando definição...";
+                    document.getElementById('premio-topo').innerText = `Prêmio: ${premio}`;
+                    
+                    const elPremioGanhado = document.getElementById('premio-ganhado');
+                    if (elPremioGanhado) elPremioGanhado.innerText = `Prêmio da rodada: ${premio}`;
+
+                    const todasCelulas = document.querySelectorAll('.bingo-cell');
+                    todasCelulas.forEach(cell => {
+                        const numVal = parseInt(cell.getAttribute('data-num'), 10);
+                        
+                        if (!isNaN(numVal) && numerosSorteadosGlobal.includes(numVal)) {
+                            cell.classList.add('sorteada-na-tv');
+                        } else if (cell.getAttribute('data-num') !== 'LIVRE') {
+                            cell.classList.remove('sorteada-na-tv');
+                        }
+                    });
+
+                    if (!jaGanhou) { verificarGanhador(); }
+                }
+            });
+        } else {
+            document.getElementById('premio-topo').innerText = "Erro: Configuração Firebase Ausente";
+        }
+
+        function verificarGanhador() {
+            cartelasSalvas.forEach(cartela => {
+                if(cartela.numeros) {
+                    const arrNumeros = cartela.numeros.split('-').map(Number);
+                    const completou = arrNumeros.every(num => numerosSorteadosGlobal.includes(num));
+
+                    if (completou && numerosSorteadosGlobal.length >= 24) {
+                        jaGanhou = true;
+                        document.getElementById('id-ganhador').innerText = cartela.id;
+                        document.getElementById('overlay-vitoria').style.display = 'flex';
+                        if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 500]);
+                    }
+                }
+            });
+        }
+
+        function fecharVitoria() { document.getElementById('overlay-vitoria').style.display = 'none'; }
+    </script>
+</body>
+</html>

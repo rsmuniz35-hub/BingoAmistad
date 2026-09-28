@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Bingo - TV</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="firebase-config.js"></script>
+
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --verde-bingo: #1e6b47;
+            --ficha-laranja: #e67e22;
+            --light: #ecf0f1;
+            --danger: #e74c3c;
+        }
+        
+        html, body {
+            height: 100vh; width: 100vw; margin: 0; padding: 0;
+            overflow: hidden; font-family: Arial, sans-serif;
+            background-color: #f4f7f6; color: var(--primary); box-sizing: border-box;
+        }
+
+        .container { height: 100%; width: 100%; padding: 15px; box-sizing: border-box; display: flex; gap: 15px; }
+        .coluna-esquerda { width: 340px; height: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 15px; }
+        .btn-fullscreen { background-color: #34495e; color: white; font-size: 1.1rem; padding: 15px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; flex-shrink: 0; transition: 0.2s; width: 100%; }
+        .area-controles { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; padding-right: 5px; min-height: 0; }
+        .area-controles::-webkit-scrollbar { width: 6px; }
+        .area-controles::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); flex-shrink: 0; }
+        h2 { margin-top: 0; border-bottom: 2px solid var(--light); padding-bottom: 10px; font-size: 1.1rem; }
+        button { padding: 10px; margin: 5px 0; border: none; border-radius: 6px; width: 100%; box-sizing: border-box; font-size: 1rem; background-color: var(--primary); color: white; border: none; cursor: pointer; font-weight: bold; }
+        .btn-warning { background-color: var(--ficha-laranja); color: #fff; font-size: 1.2rem; padding: 15px;}
+        .btn-danger { background-color: var(--danger); margin-top: 0; }
+        .contador-cartelas-box { text-align: center; padding: 10px 0; }
+        .contador-numero { display: block; font-size: 3.5rem; font-weight: 900; color: #27ae60; margin-top: 5px; }
+        .tabela-ranking { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9rem; }
+        .tabela-ranking th { background-color: var(--primary); color: white; text-align: left; padding: 6px; }
+        .tabela-ranking td { padding: 6px; border-bottom: 1px solid #eee; color: #333; }
+        .tabela-ranking tr:nth-child(even) { background-color: #f9f9f9; }
+        .ranking-destaque { font-weight: bold; color: #e67e22 !important; }
+        .painel-direito { flex: 1; height: 100%; min-width: 0; background-color: #ecf0f1; border-radius: 8px; display: flex; flex-direction: column; gap: 15px; padding: 15px; box-sizing: border-box; }
+        .destaque-sorteio { flex-shrink: 0; height: 100px; padding: 0 20px; background: #fff; color: var(--primary); border: 3px dashed #ccc; border-radius: 12px; display: flex; align-items: center; justify-content: space-between; font-weight: bold; box-sizing: border-box; }
+        .container-bolas { display: flex; align-items: flex-end; justify-content: center; gap: 20px; }
+        .bola-sorteada { display: flex; align-items: center; justify-content: center; background: var(--ficha-laranja); color: white; border-radius: 50%; box-shadow: 0 4px 8px rgba(0,0,0,0.4); font-weight: 900; }
+        .bola-atual { width: 70px; height: 70px; font-size: 35px; border: 4px solid #d35400; }
+        .bola-anterior { width: 50px; height: 50px; font-size: 22px; opacity: 0.85; }
+        .label-bola { font-size: 12px; color: #7f8c8d; text-transform: uppercase; margin-bottom: 5px; display: block; text-align: center; }
+        .estatisticas-sorteio { display: flex; gap: 20px; background: #f8f9fa; padding: 5px 15px; border-radius: 8px; border: 1px solid #ddd; }
+        .estatisticas-sorteio > div { text-align: center; font-size: 11px; color: #7f8c8d; text-transform: uppercase; }
+        .estatisticas-sorteio span { display: block; font-size: 28px; font-weight: 900; margin-top: 2px; }
+        .stat-sorteados { color: #27ae60; }
+        .stat-faltam { color: var(--danger); }
+        .bingo-board { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; background-color: var(--verde-bingo); padding: 15px; border-radius: 15px; box-sizing: border-box; box-shadow: inset 0 0 20px rgba(0,0,0,0.4), 0 8px 25px rgba(0,0,0,0.3); }
+        .bingo-column { background-color: rgba(0,0,0,0.15); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; height: 100%; min-height: 0; box-sizing: border-box; }
+        .bingo-letter { flex-shrink: 0; color: white; font-size: clamp(20px, 4vh, 40px); font-weight: 900; text-align: center; height: 10%; min-height: 35px; display: flex; justify-content: center; align-items: center; border-bottom: 4px solid rgba(255,255,255,0.3); text-transform: uppercase; margin-bottom: 10px; }
+        .bingo-numbers-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(5, 1fr); gap: 5px; }
+        .number-wrapper { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; container-type: size; }
+        .number-cell { aspect-ratio: 1 / 1; width: 100%; max-height: 100%; border-radius: 50%; border: 3px solid rgba(255,255,255,0.3); color: rgba(255,255,255,0.9); font-weight: bold; display: flex; align-items: center; justify-content: center; font-size: clamp(20px, 60cqmin, 120px); line-height: 1; position: relative; z-index: 1; cursor: pointer; }
+        .number-cell.drawn { background-color: var(--ficha-laranja); color: white; border-color: #d35400; transform: scale(1.15); box-shadow: 0 4px 12px rgba(0,0,0,0.6); z-index: 10; }
+        #overlay-sorteio { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; flex-direction: column; align-items: center; justify-content: center; }
+        .globo-animacao { font-size: 200px; animation: spin 0.6s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .texto-sorteando { color: white; font-size: 40px; margin-top: 20px; font-weight: bold; animation: piscar 1s infinite; }
+        .bola-caindo-animacao { display: none; background: var(--ficha-laranja); color: white; width: 250px; height: 250px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 90px; font-weight: 900; border: 15px solid #d35400; box-shadow: 0 20px 40px rgba(0,0,0,0.6); animation: bounceDrop 1s cubic-bezier(0.28, 0.84, 0.42, 1) forwards; }
+        @keyframes bounceDrop { 0% { transform: translateY(-1000px); opacity: 0; } 60% { transform: translateY(40px); opacity: 1; } 100% { transform: translateY(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <audio id="audio-globo" src="globo.mp3" preload="auto"></audio>
+
+    <div id="overlay-sorteio">
+        <div id="fase-globo" style="display: flex; flex-direction: column; align-items: center;">
+            <div class="globo-animacao">🌐</div>
+            <div class="texto-sorteando">Sorteando...</div>
+        </div>
+        <div id="fase-bola" class="bola-caindo-animacao"><span id="numero-revelado">0</span></div>
+    </div>
+
+    <div class="container">
+        <div class="coluna-esquerda">
+            <button class="btn-fullscreen" onclick="ativarTelaCheia()">📺 TELA CHEIA</button>
+            <div class="area-controles">
+                
+                <div class="card">
+                    <p style="margin: 0 0 5px 0; font-size: 0.9rem;"><strong>Prêmio da Rodada:</strong></p>
+                    <div id="displayPremio" style="font-size: 1.2rem; font-weight: bold; color: #2c3e50; background: #ecf0f1; padding: 8px; border-radius: 6px; text-align: center;">Sincronizando prêmio...</div>
+                    
+                    <div class="contador-cartelas-box">
+                        <span style="font-size: 0.85rem; color:#7f8c8d; text-transform: uppercase; font-weight: bold;">Cartelas Concorrendo</span>
+                        <span id="tv-total-cartelas" class="contador-numero">0</span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>📊 Classificação Top 10</h2>
+                    <table class="tabela-ranking">
+                        <thead>
+                            <tr><th>Pos</th><th>Cartela ID</th><th>Acertos</th><th>Faltam</th></tr>
+                        </thead>
+                        <tbody id="corpo-ranking">
+                            <tr><td colspan="4" style="text-align:center; color:#999;">Aguardando vendas...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="card">
+                    <h2>2. Sorteio (Painel Local)</h2>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="btn-sortear" class="btn-warning" onclick="iniciarAnimacaoSorteio()" style="flex: 2;">🎲 Sortear</button>
+                        <button class="btn-danger" onclick="limparSorteio()" style="flex: 1;">🔄 Zerar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="painel-direito">
+            <div class="destaque-sorteio" id="ultimo-sorteado">
+                <div style="width: 100%; text-align: center; font-size: 24px;">Aguardando sorteio...</div>
+            </div>
+            <div class="bingo-board" id="board"></div>
+        </div>
+    </div>
+
+    <script>
+        let premioAtual = "Nenhum";
+        let cartelasNoSistema = [];
+        let numerosSorteados = []; 
+        let sorteioEmAndamento = false; 
+        let ultimoTimestampReset = "0";
+
+        // RENDERIZAÇÃO INICIAL DO QUADRO DA TV
+        function renderizarBoard() {
+            const board = document.getElementById('board'); board.innerHTML = ''; 
+            const colunas = [{ letra: 'B', min: 1, max: 15 }, { letra: 'I', min: 16, max: 30 }, { letra: 'N', min: 31, max: 45 }, { letra: 'G', min: 46, max: 60 }, { letra: 'O', min: 61, max: 75 }];
+            colunas.forEach(colData => {
+                let colDiv = document.createElement('div'); colDiv.className = 'bingo-column';
+                let header = document.createElement('div'); header.className = 'bingo-letter'; header.innerText = colData.letra; colDiv.appendChild(header);
+                let gradeNumeros = document.createElement('div'); gradeNumeros.className = 'bingo-numbers-grid';
+                for(let i = colData.min; i <= colData.max; i++) {
+                    let wrapper = document.createElement('div'); wrapper.className = 'number-wrapper';
+                    let numDiv = document.createElement('div'); numDiv.className = 'number-cell'; numDiv.innerText = i; numDiv.id = `num-${i}`;
+                    
+                    // Vincula o clique do mouse diretamente à função toggleNumero
+                    numDiv.onclick = function() { if(!sorteioEmAndamento) toggleNumero(i, numDiv); };
+                    
+                    wrapper.appendChild(numDiv); gradeNumeros.appendChild(wrapper);
+                }
+                colDiv.appendChild(gradeNumeros); board.appendChild(colDiv);
+            });
+        }
+
+        // SINCRO PASSIVA REVISADA: Impede que as atualizações apaguem os números locais da TV
+        if (typeof db !== 'undefined') {
+            db.collection("config").doc("sorteio").onSnapshot((doc) => {
+                if (doc.exists) {
+                    const data = doc.data();
+                    
+                    if(data.premio) {
+                        premioAtual = data.premio;
+                        document.getElementById('displayPremio').innerText = premioAtual;
+                    }
+                    
+                    if(data.cartelasOficiais) {
+                        cartelasNoSistema = data.cartelasOficiais;
+                        document.getElementById('tv-total-cartelas').innerText = cartelasNoSistema.length;
+                    } else {
+                        cartelasNoSistema = [];
+                        document.getElementById('tv-total-cartelas').innerText = "0";
+                    }
+
+                    // Força o reset físico apenas se o carimbo de reset do celular mudar
+                    if(data.forcarResetLocal && data.forcarResetLocal.toString() !== ultimoTimestampReset) {
+                        ultimoTimestampReset = data.forcarResetLocal.toString();
+                        numerosSorteados = [];
+                        let celulas = document.getElementsByClassName('number-cell');
+                        for(let celula of celulas) celula.classList.remove('drawn');
+                        atualizarVisorBolas();
+                    }
+                    
+                    atualizarRankingAcertos();
+                }
+            });
+        }
+
+        // Envia os números e preserva a integridade dos dados gerados pelo celular
+        function enviarDadosParaFirebase() {
+            if (typeof db !== 'undefined') {
+                db.collection("config").doc("sorteio").set({
+                    sorteados: numerosSorteados
+                }, { merge: true }).catch(err => console.error("Erro Firebase: ", err));
+            }
+        }
+
+        function ativarTelaCheia() {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else document.exitFullscreen();
+        }
+
+        function atualizarRankingAcertos() {
+            if(cartelasNoSistema.length === 0) {
+                document.getElementById('corpo-ranking').innerHTML = `<tr><td colspan="4" style="text-align:center; color:#999;">Aguardando vendas...</td></tr>`;
+                return;
+            }
+
+            let listaCalculada = cartelasNoSistema.map(cartela => {
+                let arrNums = Array.isArray(cartela.numeros) ? cartela.numeros : cartela.numeros.split('-').map(Number);
+                let acertos = arrNums.filter(num => numerosSorteados.includes(Number(num))).length;
+                return { id: cartela.id, acertos: acertos, faltam: 24 - acertos };
+            });
+
+            listaCalculada.sort((a, b) => b.acertos - a.acertos);
+            let top10 = listaCalculada.slice(0, 10);
+
+            const corpoRanking = document.getElementById('corpo-ranking');
+            corpoRanking.innerHTML = "";
+
+            top10.forEach((item, index) => {
+                let classeDestaque = item.faltam <= 3 ? "ranking-destaque" : ""; 
+                corpoRanking.innerHTML += `
+                    <tr class="${classeDestaque}">
+                        <td><strong>${index + 1}º</strong></td>
+                        <td>${item.id}</td>
+                        <td><span style="color:#27ae60; font-weight:bold;">${item.acertos}</span></td>
+                        <td><span style="color:${item.faltam <= 3 ? '#e67e22' : '#c0392b'}; font-weight:bold;">${item.faltam}</span></td>
+                    </tr>`;
+            });
+        }
+
+        function atualizarVisorBolas() {
+            const visor = document.getElementById('ultimo-sorteado');
+            const qtdSorteados = numerosSorteados.length;
+            if(qtdSorteados === 0) { visor.innerHTML = "<div style='width: 100%; text-align: center; font-size: 24px;'>Aguardando sorteio...</div>"; return; }
+            const ultima = numerosSorteados[qtdSorteados - 1];
+            const penultima = qtdSorteados > 1 ? numerosSorteados[qtdSorteados - 2] : null;
+            let html = `<div style="flex: 1;"></div><div class="container-bolas" style="flex: 2;">`;
+            if(penultima !== null) html += `<div><span class="label-bola">Anterior</span><div class="bola-sorteada bola-anterior">${penultima}</div></div>`;
+            html += `<div><span class="label-bola" style="color:var(--primary); font-weight:bold;">Atual</span><div class="bola-sorteada bola-atual">${ultima}</div></div></div>`;
+            html += `<div style="flex: 1; display: flex; justify-content: flex-end;"><div class="estatisticas-sorteio"><div>Sorteados <span class="stat-sorteados">${qtdSorteados}</span></div><div>Faltam <span class="stat-faltam">${75 - qtdSorteados}</span></div></div></div>`;
+            visor.innerHTML = html;
+        }
+
+        function toggleNumero(numero, elemento) {
+            if(elemento.classList.contains('drawn')) {
+                elemento.classList.remove('drawn'); 
+                numerosSorteados = numerosSorteados.filter(n => n !== numero);
+            } else {
+                elemento.classList.add('drawn'); 
+                numerosSorteados.push(numero);
+            }
+            atualizarVisorBolas(); 
+            atualizarRankingAcertos(); 
+            enviarDadosParaFirebase();
+        }
+
+        function iniciarAnimacaoSorteio() {
+            if(sorteioEmAndamento) return; 
+            let disponiveis = [];
+            for(let i = 1; i <= 75; i++) { if(!numerosSorteados.includes(i)) disponiveis.push(i); }
+            if(disponiveis.length === 0) { alert("Todos os números sorteados!"); return; }
+            
+            sorteioEmAndamento = true; 
+            document.getElementById('btn-sortear').disabled = true;
+            let numeroSorteado = disponiveis[Math.floor(Math.random() * disponiveis.length)];
+            
+            const overlay = document.getElementById('overlay-sorteio'); 
+            const audioGlobo = document.getElementById('audio-globo');
+            
+            audioGlobo.currentTime = 0; 
+            audioGlobo.play().catch(e => console.log(e));
+            
+            overlay.style.display = 'flex'; 
+            document.getElementById('fase-globo').style.display = 'flex'; 
+            document.getElementById('fase-bola').style.display = 'none'; 
+            document.getElementById('numero-revelado').innerText = numeroSorteado;
+            
+            setTimeout(() => {
+                document.getElementById('fase-globo').style.display = 'none'; 
+                document.getElementById('fase-bola').style.display = 'flex';
+                setTimeout(() => {
+                    audioGlobo.pause(); 
+                    overlay.style.display = 'none';
+                    
+                    let elemento = document.getElementById(`num-${numeroSorteado}`); 
+                    if(elemento) toggleNumero(numeroSorteado, elemento);
+                    
+                    sorteioEmAndamento = false; 
+                    document.getElementById('btn-sortear').disabled = false;
+                }, 2000); 
+            }, 3000); 
+        }
+
+        function limparSorteio() {
+            if(confirm("Deseja zerar as pedras da TV nesta rodada?")) {
+                numerosSorteados = []; 
+                atualizarVisorBolas();
+                let celulas = document.getElementsByClassName('number-cell');
+                for(let celula of celulas) celula.classList.remove('drawn');
+                atualizarRankingAcertos(); 
+                enviarDadosParaFirebase();
+            }
+        }
+
+        window.onload = renderizarBoard;
+    </script>
+</body>
+</html>
